@@ -109,33 +109,45 @@ def download_media(session: requests.Session, sec_uid, video_list, picture_list)
         os.mkdir(sec_uid)
     os.chdir(sec_uid)
 
+    def download_with_retries(url, file_name, file_ext, retries=3):
+        """用于在下载过程中重试"""
+        for attempt in range(retries):
+            try:
+                with session.get(url, stream=True, timeout=(10, 30)) as response:
+                    if response.status_code == 200:
+                        with open(f'{file_name}.{file_ext}', "wb") as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                        return True  # 下载成功
+                    else:
+                        print(f"网络异常 Status code: {response.status_code}")
+            except requests.exceptions.ChunkedEncodingError:
+                print(f"ChunkedEncodingError: 正在重试 {attempt+1}/{retries}...")
+            except requests.exceptions.RequestException as e:
+                print(f"请求错误: {e}, 正在重试 {attempt+1}/{retries}...")
+            if attempt < retries - 1:
+                continue  # 重试
+            else:
+                print(f"下载失败，无法完成文件：{file_name}")
+                return False  # 下载失败
+
     with tqdm(total=len(video_list) + len(picture_list), desc="下载进度", unit="文件") as pbar:
 
         for i in video_list:
             des = i[0]
             url = i[1]
-            with session.get(url, stream=True) as response:
-                if response.status_code == 200:
-                    file_name = my_util.sanitize_filename(des)
-                    with open(f'{file_name}.mp4', "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
-                else:
-                    print(f"网络异常 Status code: {response.status_code}")
-            pbar.update(1)  # 完成当前文件的处理
+            file_name = my_util.sanitize_filename(des)
+            success = download_with_retries(url, file_name, "mp4")
+            if success:
+                pbar.update(1)  # 完成当前文件的处理
+
         for i in picture_list:
             url = i
-            with session.get(url, stream=True) as response:
-                if response.status_code == 200:
-                    file_name = my_util.IDGenerator.generate_unique_id()
-                    with open(f'{file_name}.jpg', "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk:
-                                f.write(chunk)
-                else:
-                    print(f"网络异常 Status code: {response.status_code}")
-            pbar.update(1)  # 完成当前文件的处理
+            file_name = my_util.IDGenerator.generate_unique_id()
+            success = download_with_retries(url, file_name, "jpg")
+            if success:
+                pbar.update(1)  # 完成当前文件的处理
 
     print('用户视频图片已全部下载完成')
     os.chdir('..')
